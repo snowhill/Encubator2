@@ -1,0 +1,8 @@
+# ESPHome build artifacts
+.esphome/
+
+# Local test fonts
+*.ttf
+
+# Secrets (never commit)
+secrets.yaml
