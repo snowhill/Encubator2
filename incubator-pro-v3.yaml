@@ -22,18 +22,18 @@ logger:
 # Enable Home Assistant API
 api:
   encryption:
-    key: "fz7dp13dTlzkjLEqdiw4GTzmq2Kbp3X0DQAlMD8NRYs="
+    key: !secret api_encryption_key
 
 ota:
   - platform: esphome
-    password: "7a8f3c257d2ba9cff716548ef8f0878c"
+    password: !secret ota_password
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
     ssid: "Incubator Fallback"
-    password: "password123"
+    password: !secret ap_password
 
 # ======================
 # GLOBAL VARIABLES
@@ -146,7 +146,7 @@ display:
     reset_pin: GPIO4
     rotation: 90
     eightbitcolor: true
-    update_interval: 250ms
+    update_interval: 1s
     lambda: |-
       // ===== COLOR PALETTE =====
       auto BLACK      = Color(0, 0, 0);
@@ -569,7 +569,7 @@ display:
 
         // Version
         it.print(16, row_y, id(font_small), SOFT_WHITE, TextAlign::CENTER_LEFT, "Firmware:");
-        it.print(300, row_y, id(font_small), ACCENT, TextAlign::CENTER_RIGHT, "Pro V3.0");
+        it.print(300, row_y, id(font_small), ACCENT, TextAlign::CENTER_RIGHT, "Pro V3.1");
       }
 
 # ======================
@@ -588,6 +588,7 @@ sensor:
     resolution: 2
     on_clockwise:
       - lambda: |-
+          id(display_page_timer) = 0;
           if (id(menu_mode) == 4) {
              // Edit temperature
              float v = id(set_temp).state + 0.1;
@@ -617,6 +618,7 @@ sensor:
           id(my_display).update();
     on_anticlockwise:
       - lambda: |-
+          id(display_page_timer) = 0;
           if (id(menu_mode) == 4) {
              float v = id(set_temp).state - 0.1;
              if (v < 30.0) v = 30.0;
@@ -693,6 +695,7 @@ binary_sensor:
       mode: INPUT_PULLUP
     on_press:
       - lambda: |-
+          id(display_page_timer) = 0;
           if (id(menu_mode) >= 0 && id(menu_mode) <= 3) {
             // On info pages: jump to Set Temp (edit pages)
             id(menu_mode) = 4;
@@ -732,6 +735,7 @@ binary_sensor:
     on_press:
       - lambda: |-
           // Always go back to home / cancel
+          id(display_page_timer) = 0;
           id(menu_mode) = 0;
           id(edit_mode) = false;
           id(safety_edit_field) = 0;
@@ -769,6 +773,7 @@ number:
     step: 0.5
     initial_value: 32.0
     optimistic: true
+    restore_value: yes
 
   - platform: template
     id: max_temp
@@ -778,6 +783,7 @@ number:
     step: 0.5
     initial_value: 40.0
     optimistic: true
+    restore_value: yes
 
 # ======================
 # RELAYS
@@ -809,10 +815,15 @@ interval:
   - interval: 2s
     then:
       - lambda: |-
-          // SAFETY: If sensor fails or over max, stop heating
+          // SAFETY: If temp sensor fails or over max, stop heating
           if (isnan(id(temp_c).state) || id(temp_c).state > id(max_temp).state) {
             id(heater_relay).turn_off();
             return;
+          }
+
+          // SAFETY: If humidity sensor fails, stop humidifier
+          if (isnan(id(hum_pct).state)) {
+            id(humidifier_relay).turn_off();
           }
 
           // TARGET LOGIC
@@ -823,10 +834,17 @@ interval:
           if (id(temp_c).state <= (target - 0.2)) id(heater_relay).turn_on();
           else if (id(temp_c).state >= target)    id(heater_relay).turn_off();
 
-          // HUMIDIFIER LOGIC (only when not cooling)
-          if (!id(is_cooling_down)) {
+          // HUMIDIFIER LOGIC (only when not cooling, and sensor valid)
+          if (!id(is_cooling_down) && !isnan(id(hum_pct).state)) {
             if (id(hum_pct).state <= (id(set_hum).state - 3)) id(humidifier_relay).turn_on();
             else if (id(hum_pct).state >= id(set_hum).state)  id(humidifier_relay).turn_off();
+          }
+
+          // FAN LOGIC: run during cooldown for ventilation
+          if (id(is_cooling_down)) {
+            id(vent_fan).turn_on();
+          } else {
+            id(vent_fan).turn_off();
           }
 
           // Track relay on-time (2 second increments)
