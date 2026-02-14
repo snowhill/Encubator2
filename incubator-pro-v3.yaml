@@ -239,7 +239,7 @@ display:
       // ===== DRAW FOOTER (Bottom - always visible) =====
       it.filled_rectangle(0, 222, 320, 18, DARK_GREY);
       // Footer: relay status icons with labels
-      auto heater_c = id(heater_relay).state ? RED : GREY;
+      auto heater_c = id(heater_pwm).state > 0 ? RED : GREY;
       auto humid_c  = id(humidifier_relay).state ? BLUE : GREY;
       auto fan_c    = id(vent_fan).state ? GREEN : GREY;
       it.filled_circle(40, 231, 5, heater_c);
@@ -335,7 +335,7 @@ display:
 
         // Deviation
         float temp_dev = cur_temp - tgt_temp;
-        auto dev_col = (abs(temp_dev) < 0.3) ? GREEN : ((temp_dev > 0) ? RED : ORANGE);
+        auto dev_col = (std::abs(temp_dev) < 0.3f) ? GREEN : ((temp_dev > 0) ? RED : ORANGE);
         it.printf(300, 88, id(font_small), dev_col, TextAlign::CENTER_RIGHT, "%+.2f", temp_dev);
 
         // Humidity stats
@@ -346,7 +346,7 @@ display:
         it.printf(16, 210, id(font_tiny), CYAN, TextAlign::CENTER_LEFT, "Min: %.0f  |  Max: %.0f", id(min_hum_recorded), id(max_hum_recorded));
 
         float hum_dev = cur_hum - tgt_hum;
-        auto hdev_col = (abs(hum_dev) < 3) ? GREEN : ((hum_dev > 0) ? BLUE : ORANGE);
+        auto hdev_col = (std::abs(hum_dev) < 3.0f) ? GREEN : ((hum_dev > 0) ? BLUE : ORANGE);
         it.printf(300, 174, id(font_small), hdev_col, TextAlign::CENTER_RIGHT, "%+.1f", hum_dev);
       }
 
@@ -397,9 +397,9 @@ display:
 
         // Heater row
         it.rectangle(12, 58, 296, 44, PANEL_BORDER);
-        it.filled_circle(32, 80, 10, id(heater_relay).state ? RED : DARK_GREY);
+        it.filled_circle(32, 80, 10, id(heater_pwm).state > 0 ? RED : DARK_GREY);
         it.print(50, 72, id(font_small), WHITE, TextAlign::CENTER_LEFT, "Heater");
-        it.print(50, 90, id(font_tiny), GREY, TextAlign::CENTER_LEFT, id(heater_relay).state ? "RUNNING" : "Standby");
+        it.print(50, 90, id(font_tiny), GREY, TextAlign::CENTER_LEFT, id(heater_pwm).state > 0 ? "RUNNING" : "Standby");
         unsigned long h_hrs = id(heater_on_seconds) / 3600;
         unsigned long h_min = (id(heater_on_seconds) % 3600) / 60;
         it.printf(296, 80, id(font_tiny), SOFT_WHITE, TextAlign::CENTER_RIGHT, "%luh %lum", h_hrs, h_min);
@@ -551,7 +551,16 @@ display:
 
         // IP Address
         it.print(16, row_y, id(font_small), SOFT_WHITE, TextAlign::CENTER_LEFT, "IP:");
-        it.printf(300, row_y, id(font_small), WHITE, TextAlign::CENTER_RIGHT, "%s", wifi::global_wifi_component->get_ip_addresses()[0].str().c_str());
+        if (wifi::global_wifi_component->is_connected()) {
+          auto ips = wifi::global_wifi_component->get_ip_addresses();
+          if (!ips.empty()) {
+            it.printf(300, row_y, id(font_small), WHITE, TextAlign::CENTER_RIGHT, "%s", ips[0].str().c_str());
+          } else {
+            it.print(300, row_y, id(font_small), RED, TextAlign::CENTER_RIGHT, "No IP");
+          }
+        } else {
+          it.print(300, row_y, id(font_small), RED, TextAlign::CENTER_RIGHT, "Not Connected");
+        }
         row_y += row_h;
         it.filled_rectangle(8, row_y, 304, 1, PANEL_BORDER);
         row_y += 4;
@@ -798,25 +807,47 @@ number:
     restore_value: yes
 
 # ======================
+# HEATER OUTPUT (Slow PWM for SSR)
+# ======================
+output:
+  - platform: slow_pwm
+    id: heater_pwm
+    pin: GPIO13
+    period: 2s
+
+# ======================
+# PID CLIMATE CONTROL
+# ======================
+climate:
+  - platform: pid
+    id: heater_pid
+    name: "Incubator Heater"
+    sensor: temp_c
+    default_target_temperature: 37.5°C
+    heat_output: heater_pwm
+    control_parameters:
+      kp: 0.6
+      ki: 0.005
+      kd: 0.0
+    visual:
+      min_temperature: 30
+      max_temperature: 45
+      temperature_step: 0.1
+
+# ======================
 # RELAYS
 # ======================
 switch:
   - platform: gpio
-    id: heater_relay
-    name: "Heater"
-    pin: GPIO13
-    restore_mode: ALWAYS_OFF
-
-  - platform: gpio
     id: humidifier_relay
     name: "Humidifier"
-    pin: GPIO12
+    pin: GPIO5
     restore_mode: ALWAYS_OFF
 
   - platform: gpio
     id: vent_fan
     name: "Ventilation Fan"
-    pin: GPIO15
+    pin: GPIO17
     restore_mode: ALWAYS_OFF
 
 # ======================
@@ -827,24 +858,48 @@ interval:
   - interval: 2s
     then:
       - lambda: |-
-          // SAFETY: If temp sensor fails or over max, stop heating
-          if (isnan(id(temp_c).state) || id(temp_c).state > id(max_temp).state) {
-            id(heater_relay).turn_off();
+          // SAFETY: If temp sensor fails, disable PID
+          if (isnan(id(temp_c).state)) {
+            id(heater_pwm).set_level(0);
+            auto call = id(heater_pid).make_call();
+            call.set_mode("OFF");
+            call.perform();
             return;
+          }
+
+          // SAFETY: Emergency cutoff with 0.5°C hysteresis
+          static bool emergency_cutoff = false;
+          if (id(temp_c).state > id(max_temp).state) {
+            emergency_cutoff = true;
+          } else if (id(temp_c).state <= (id(max_temp).state - 0.5f)) {
+            emergency_cutoff = false;
+          }
+          if (emergency_cutoff) {
+            id(heater_pwm).set_level(0);
+            auto call = id(heater_pid).make_call();
+            call.set_mode("OFF");
+            call.perform();
+            return;
+          }
+
+          // PID TARGET: update setpoint based on normal or cooldown mode
+          float target = id(set_temp).state;
+          if (id(is_cooling_down)) target = id(cool_down_target).state;
+
+          // Only update PID if target changed or mode is off
+          auto current_mode = id(heater_pid).mode;
+          if (current_mode != climate::CLIMATE_MODE_HEAT ||
+              std::abs(id(heater_pid).target_temperature - target) > 0.05f) {
+            auto call = id(heater_pid).make_call();
+            call.set_mode("HEAT");
+            call.set_target_temperature(target);
+            call.perform();
           }
 
           // SAFETY: If humidity sensor fails, stop humidifier
           if (isnan(id(hum_pct).state)) {
             id(humidifier_relay).turn_off();
           }
-
-          // TARGET LOGIC
-          float target = id(set_temp).state;
-          if (id(is_cooling_down)) target = id(cool_down_target).state;
-
-          // HEATER LOGIC (hysteresis)
-          if (id(temp_c).state <= (target - 0.2)) id(heater_relay).turn_on();
-          else if (id(temp_c).state >= target)    id(heater_relay).turn_off();
 
           // HUMIDIFIER LOGIC (only when not cooling, and sensor valid)
           if (!id(is_cooling_down) && !isnan(id(hum_pct).state)) {
@@ -860,7 +915,7 @@ interval:
           }
 
           // Track relay on-time (2 second increments)
-          if (id(heater_relay).state)     id(heater_on_seconds) += 2;
+          if (id(heater_pwm).state > 0)     id(heater_on_seconds) += 2;
           if (id(humidifier_relay).state) id(humidifier_on_seconds) += 2;
           if (id(vent_fan).state)         id(fan_on_seconds) += 2;
 
