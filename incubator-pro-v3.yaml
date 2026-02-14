@@ -239,7 +239,7 @@ display:
       // ===== DRAW FOOTER (Bottom - always visible) =====
       it.filled_rectangle(0, 222, 320, 18, DARK_GREY);
       // Footer: relay status icons with labels
-      auto heater_c = id(heater_pwm).state > 0 ? RED : GREY;
+      auto heater_c = id(heater_pwm).get_state() > 0 ? RED : GREY;
       auto humid_c  = id(humidifier_relay).state ? BLUE : GREY;
       auto fan_c    = id(vent_fan).state ? GREEN : GREY;
       it.filled_circle(40, 231, 5, heater_c);
@@ -397,9 +397,9 @@ display:
 
         // Heater row
         it.rectangle(12, 58, 296, 44, PANEL_BORDER);
-        it.filled_circle(32, 80, 10, id(heater_pwm).state > 0 ? RED : DARK_GREY);
+        it.filled_circle(32, 80, 10, id(heater_pwm).get_state() > 0 ? RED : DARK_GREY);
         it.print(50, 72, id(font_small), WHITE, TextAlign::CENTER_LEFT, "Heater");
-        it.print(50, 90, id(font_tiny), GREY, TextAlign::CENTER_LEFT, id(heater_pwm).state > 0 ? "RUNNING" : "Standby");
+        it.print(50, 90, id(font_tiny), GREY, TextAlign::CENTER_LEFT, id(heater_pwm).get_state() > 0 ? "RUNNING" : "Standby");
         unsigned long h_hrs = id(heater_on_seconds) / 3600;
         unsigned long h_min = (id(heater_on_seconds) % 3600) / 60;
         it.printf(296, 80, id(font_tiny), SOFT_WHITE, TextAlign::CENTER_RIGHT, "%luh %lum", h_hrs, h_min);
@@ -910,7 +910,7 @@ interval:
           }
 
           // Track relay on-time (2 second increments)
-          if (id(heater_pwm).state > 0)     id(heater_on_seconds) += 2;
+          if (id(heater_pwm).get_state() > 0)     id(heater_on_seconds) += 2;
           if (id(humidifier_relay).state) id(humidifier_on_seconds) += 2;
           if (id(vent_fan).state)         id(fan_on_seconds) += 2;
 
