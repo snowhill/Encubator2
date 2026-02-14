@@ -591,25 +591,22 @@ sensor:
           id(display_page_timer) = 0;
           if (id(edit_mode)) {
             if (id(menu_mode) == 4) {
-               // Edit temperature
                float v = id(set_temp).state + 0.1;
                if (v > 40.0) v = 40.0;
-               id(set_temp).make_call().set_value(v).perform();
+               id(set_temp).publish_state(v);
             } else if (id(menu_mode) == 5) {
-               // Edit humidity
                float v = id(set_hum).state + 1.0;
                if (v > 80.0) v = 80.0;
-               id(set_hum).make_call().set_value(v).perform();
+               id(set_hum).publish_state(v);
             } else if (id(menu_mode) == 6) {
-               // Edit safety fields
                if (id(safety_edit_field) == 0) {
                  float v = id(max_temp).state + 0.5;
                  if (v > 45.0) v = 45.0;
-                 id(max_temp).make_call().set_value(v).perform();
+                 id(max_temp).publish_state(v);
                } else {
                  float v = id(cool_down_target).state + 0.5;
                  if (v > 38.0) v = 38.0;
-                 id(cool_down_target).make_call().set_value(v).perform();
+                 id(cool_down_target).publish_state(v);
                }
             }
           }
@@ -621,20 +618,20 @@ sensor:
             if (id(menu_mode) == 4) {
                float v = id(set_temp).state - 0.1;
                if (v < 30.0) v = 30.0;
-               id(set_temp).make_call().set_value(v).perform();
+               id(set_temp).publish_state(v);
             } else if (id(menu_mode) == 5) {
                float v = id(set_hum).state - 1.0;
                if (v < 30.0) v = 30.0;
-               id(set_hum).make_call().set_value(v).perform();
+               id(set_hum).publish_state(v);
             } else if (id(menu_mode) == 6) {
                if (id(safety_edit_field) == 0) {
                  float v = id(max_temp).state - 0.5;
                  if (v < 38.0) v = 38.0;
-                 id(max_temp).make_call().set_value(v).perform();
+                 id(max_temp).publish_state(v);
                } else {
                  float v = id(cool_down_target).state - 0.5;
                  if (v < 20.0) v = 20.0;
-                 id(cool_down_target).make_call().set_value(v).perform();
+                 id(cool_down_target).publish_state(v);
                }
             }
           }
@@ -692,8 +689,16 @@ binary_sensor:
     on_press:
       - lambda: |-
           id(display_page_timer) = 0;
-          if (id(menu_mode) == 4 || id(menu_mode) == 5) {
-            // Toggle edit mode on Set Temp / Set Humidity pages
+          if (id(menu_mode) == 4) {
+            if (id(edit_mode)) {
+              // Confirm: persist value to HA and flash storage
+              id(set_temp).make_call().set_value(id(set_temp).state).perform();
+            }
+            id(edit_mode) = !id(edit_mode);
+          } else if (id(menu_mode) == 5) {
+            if (id(edit_mode)) {
+              id(set_hum).make_call().set_value(id(set_hum).state).perform();
+            }
             id(edit_mode) = !id(edit_mode);
           } else if (id(menu_mode) == 6) {
             if (!id(edit_mode)) {
@@ -704,12 +709,14 @@ binary_sensor:
               // Cycle through safety fields, then confirm and exit edit
               id(safety_edit_field) += 1;
               if (id(safety_edit_field) > 1) {
+                // Persist both safety values on confirm
+                id(max_temp).make_call().set_value(id(max_temp).state).perform();
+                id(cool_down_target).make_call().set_value(id(cool_down_target).state).perform();
                 id(safety_edit_field) = 0;
                 id(edit_mode) = false;
               }
             }
           }
-          // On info pages (0-3) and system info (7): knob press does nothing
           id(my_display).update();
 
   - platform: gpio
