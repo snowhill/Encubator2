@@ -93,6 +93,10 @@ globals:
   - id: display_dirty
     type: bool
     initial_value: 'true'
+  - id: save_confirm_timer
+    type: int
+    initial_value: '0'
+    # Counts down from 4 (2 seconds at 500ms intervals) to show "SAVED!" flash
 # ======================
 # HARDWARE SETTINGS
 # ======================
@@ -277,7 +281,7 @@ display:
         auto overall_text = (temp_ok && hum_ok) ? "ALL OPTIMAL" : "ADJUSTING...";
         it.filled_circle(24, 202, 6, overall);
         it.printf(36, 202, id(font_small), overall, TextAlign::CENTER_LEFT, "%s", overall_text);
-        it.print(310, 202, id(font_tiny), GREY, TextAlign::CENTER_RIGHT, "[Knob] Menu");
+        it.print(310, 202, id(font_tiny), GREY, TextAlign::CENTER_RIGHT, "Scroll: Menu");
       }
       // =====================================================
       // PAGE 1: DETAILED STATS
@@ -409,6 +413,12 @@ display:
         it.filled_rectangle(40, 190, 240, 22, DARK_GREY);
         it.printf(160, 201, id(font_tiny), temp_color, TextAlign::CENTER, "Current: %.1f \xc2\xb0""C  (%+.1f)", cur_temp, cur_temp - tgt_temp);
 
+        // Save confirmation flash
+        if (id(save_confirm_timer) > 0 && id(menu_mode) == 4) {
+          it.filled_rectangle(90, 68, 140, 20, GREEN);
+          it.print(160, 78, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
+        }
+
         if (id(edit_mode)) {
            it.print(160, 216, id(font_tiny), YELLOW, TextAlign::CENTER, "Rotate to Change  |  Press to Save");
         } else {
@@ -445,6 +455,12 @@ display:
         it.printf(160, 176, id(font_tiny), SOFT_WHITE, TextAlign::CENTER, "Range: 30 - 80 %%");
         it.filled_rectangle(40, 190, 240, 22, DARK_GREY);
         it.printf(160, 201, id(font_tiny), hum_color, TextAlign::CENTER, "Current: %.0f %%  (%+.0f)", cur_hum, cur_hum - tgt_hum);
+        // Save confirmation flash
+        if (id(save_confirm_timer) > 0 && id(menu_mode) == 5) {
+          it.filled_rectangle(90, 68, 140, 20, GREEN);
+          it.print(160, 78, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
+        }
+
         if (id(edit_mode)) {
            it.print(160, 216, id(font_tiny), YELLOW, TextAlign::CENTER, "Rotate to Change  |  Press to Save");
         } else {
@@ -479,6 +495,11 @@ display:
           it.printf(284, 138, id(font_main), CYAN, TextAlign::CENTER_RIGHT, "%.1f\xc2\xb0""C", id(cool_down_target).state);
         }
         it.printf(24, 164, id(font_tiny), GREY, TextAlign::CENTER_LEFT, "Target during daily cool-down (20-38\xc2\xb0""C)");
+        // Save confirmation flash
+        if (id(save_confirm_timer) > 0 && id(menu_mode) == 6) {
+          it.filled_rectangle(90, 186, 140, 20, GREEN);
+          it.print(160, 196, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
+        }
         // Instructions
         it.filled_rectangle(12, 192, 296, 24, DARK_GREY);
         if (id(edit_mode)) {
@@ -583,6 +604,10 @@ sensor:
                  id(cool_down_target).publish_state(v);
                }
             }
+          } else {
+            // Navigate pages when not editing
+            id(menu_mode) += 1;
+            if (id(menu_mode) >= id(total_menu_pages)) id(menu_mode) = 0;
           }
           id(display_dirty) = true;
     on_anticlockwise:
@@ -608,6 +633,10 @@ sensor:
                  id(cool_down_target).publish_state(v);
                }
             }
+          } else {
+            // Navigate pages backwards when not editing
+            id(menu_mode) -= 1;
+            if (id(menu_mode) < 0) id(menu_mode) = id(total_menu_pages) - 1;
           }
           id(display_dirty) = true;
   # --- Real Sensors ---
@@ -662,11 +691,13 @@ binary_sensor:
             if (id(edit_mode)) {
               // Confirm: persist value to HA and flash storage
               id(set_temp).make_call().set_value(id(set_temp).state).perform();
+              id(save_confirm_timer) = 4;  // Flash "SAVED!" for 2 seconds
             }
             id(edit_mode) = !id(edit_mode);
           } else if (id(menu_mode) == 5) {
             if (id(edit_mode)) {
               id(set_hum).make_call().set_value(id(set_hum).state).perform();
+              id(save_confirm_timer) = 4;  // Flash "SAVED!" for 2 seconds
             }
             id(edit_mode) = !id(edit_mode);
           } else if (id(menu_mode) == 6) {
@@ -683,6 +714,7 @@ binary_sensor:
                 id(cool_down_target).make_call().set_value(id(cool_down_target).state).perform();
                 id(safety_edit_field) = 0;
                 id(edit_mode) = false;
+                id(save_confirm_timer) = 4;  // Flash "SAVED!" for 2 seconds
               }
             }
           }
@@ -747,6 +779,24 @@ number:
     initial_value: 40.0
     optimistic: true
     restore_value: yes
+  - platform: template
+    id: cool_down_hour
+    name: "Cool-Down Start Hour"
+    min_value: 0
+    max_value: 23
+    step: 1
+    initial_value: 12
+    optimistic: true
+    restore_value: yes
+  - platform: template
+    id: cool_down_duration
+    name: "Cool-Down Duration (min)"
+    min_value: 5
+    max_value: 120
+    step: 5
+    initial_value: 30
+    optimistic: true
+    restore_value: yes
 # ======================
 # HEATER OUTPUT (Slow PWM for SSR)
 # ======================
@@ -787,6 +837,11 @@ switch:
     name: "Ventilation Fan"
     pin: GPIO17
     restore_mode: ALWAYS_OFF
+  - platform: template
+    id: hum_during_cooldown
+    name: "Humidity During Cooldown"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
 # ======================
 # AUTOMATION INTERVALS
 # ======================
@@ -833,10 +888,15 @@ interval:
           if (isnan(id(hum_pct).state)) {
             id(humidifier_relay).turn_off();
           }
-          // HUMIDIFIER LOGIC (only when not cooling, and sensor valid)
-          if (!id(is_cooling_down) && !isnan(id(hum_pct).state)) {
-            if (id(hum_pct).state <= (id(set_hum).state - 3)) id(humidifier_relay).turn_on();
-            else if (id(hum_pct).state >= id(set_hum).state)  id(humidifier_relay).turn_off();
+          // HUMIDIFIER LOGIC (respects cooldown humidity setting)
+          if (!isnan(id(hum_pct).state)) {
+            bool allow_hum = !id(is_cooling_down) || id(hum_during_cooldown).state;
+            if (allow_hum) {
+              if (id(hum_pct).state <= (id(set_hum).state - 3)) id(humidifier_relay).turn_on();
+              else if (id(hum_pct).state >= id(set_hum).state)  id(humidifier_relay).turn_off();
+            } else {
+              id(humidifier_relay).turn_off();
+            }
           }
           // FAN LOGIC: run during cooldown for ventilation
           if (id(is_cooling_down)) {
@@ -869,6 +929,11 @@ interval:
       - lambda: |-
           static int slow_counter = 0;
           slow_counter++;
+          // Countdown save confirmation timer
+          if (id(save_confirm_timer) > 0) {
+            id(save_confirm_timer) -= 1;
+            id(display_dirty) = true;
+          }
           if (id(display_dirty)) {
             id(display_dirty) = false;
             id(my_display).update();
@@ -885,10 +950,24 @@ time:
     id: sntp_time
     timezone: "Asia/Dubai"
     on_time:
+      # Check every minute if it's time to start cooldown
       - seconds: 0
-        minutes: 0
-        hours: 12
         then:
-          - lambda: "id(is_cooling_down) = true;"
-          - delay: 30min
-          - lambda: "id(is_cooling_down) = false;"
+          - lambda: |-
+              auto time = id(sntp_time).now();
+              if (!time.is_valid()) return;
+              int current_minute = time.hour * 60 + time.minute;
+              int start_minute = (int)id(cool_down_hour).state * 60;
+              int duration = (int)id(cool_down_duration).state;
+              int end_minute = start_minute + duration;
+              if (current_minute >= start_minute && current_minute < end_minute) {
+                if (!id(is_cooling_down)) {
+                  id(is_cooling_down) = true;
+                  id(display_dirty) = true;
+                }
+              } else {
+                if (id(is_cooling_down)) {
+                  id(is_cooling_down) = false;
+                  id(display_dirty) = true;
+                }
+              }
