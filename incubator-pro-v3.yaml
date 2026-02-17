@@ -413,16 +413,15 @@ display:
         it.filled_rectangle(40, 190, 240, 22, DARK_GREY);
         it.printf(160, 201, id(font_tiny), temp_color, TextAlign::CENTER, "Current: %.1f \xc2\xb0""C  (%+.1f)", cur_temp, cur_temp - tgt_temp);
 
-        // Save confirmation flash
-        if (id(save_confirm_timer) > 0 && id(menu_mode) == 4) {
-          it.filled_rectangle(90, 68, 140, 20, GREEN);
-          it.print(160, 78, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
-        }
-
         if (id(edit_mode)) {
            it.print(160, 216, id(font_tiny), YELLOW, TextAlign::CENTER, "Rotate to Change  |  Press to Save");
         } else {
            it.print(160, 216, id(font_tiny), AMBER, TextAlign::CENTER, "Press Knob to Edit");
+        }
+        // Save confirmation flash (drawn last so it appears on top)
+        if (id(save_confirm_timer) > 0) {
+          it.filled_rectangle(90, 68, 140, 20, GREEN);
+          it.print(160, 78, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
         }
       }
       // =====================================================
@@ -455,16 +454,15 @@ display:
         it.printf(160, 176, id(font_tiny), SOFT_WHITE, TextAlign::CENTER, "Range: 30 - 80 %%");
         it.filled_rectangle(40, 190, 240, 22, DARK_GREY);
         it.printf(160, 201, id(font_tiny), hum_color, TextAlign::CENTER, "Current: %.0f %%  (%+.0f)", cur_hum, cur_hum - tgt_hum);
-        // Save confirmation flash
-        if (id(save_confirm_timer) > 0 && id(menu_mode) == 5) {
-          it.filled_rectangle(90, 68, 140, 20, GREEN);
-          it.print(160, 78, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
-        }
-
         if (id(edit_mode)) {
            it.print(160, 216, id(font_tiny), YELLOW, TextAlign::CENTER, "Rotate to Change  |  Press to Save");
         } else {
            it.print(160, 216, id(font_tiny), AMBER, TextAlign::CENTER, "Press Knob to Edit");
+        }
+        // Save confirmation flash (drawn last so it appears on top)
+        if (id(save_confirm_timer) > 0) {
+          it.filled_rectangle(90, 68, 140, 20, GREEN);
+          it.print(160, 78, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
         }
       }
       // =====================================================
@@ -495,17 +493,17 @@ display:
           it.printf(284, 138, id(font_main), CYAN, TextAlign::CENTER_RIGHT, "%.1f\xc2\xb0""C", id(cool_down_target).state);
         }
         it.printf(24, 164, id(font_tiny), GREY, TextAlign::CENTER_LEFT, "Target during daily cool-down (20-38\xc2\xb0""C)");
-        // Save confirmation flash
-        if (id(save_confirm_timer) > 0 && id(menu_mode) == 6) {
-          it.filled_rectangle(90, 186, 140, 20, GREEN);
-          it.print(160, 196, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
-        }
         // Instructions
         it.filled_rectangle(12, 192, 296, 24, DARK_GREY);
         if (id(edit_mode)) {
           it.print(160, 204, id(font_tiny), YELLOW, TextAlign::CENTER, "Rotate: Adjust  |  Press: Next Field");
         } else {
           it.print(160, 204, id(font_tiny), AMBER, TextAlign::CENTER, "Press Knob to Edit  |  Back to Cancel");
+        }
+        // Save confirmation flash (drawn last so it appears on top)
+        if (id(save_confirm_timer) > 0) {
+          it.filled_rectangle(90, 56, 140, 20, GREEN);
+          it.print(160, 66, id(font_small), WHITE, TextAlign::CENTER, "SAVED!");
         }
       }
       // =====================================================
